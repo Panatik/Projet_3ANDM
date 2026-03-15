@@ -121,11 +121,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val displayList = if (searchQuery.isBlank()) {
-                    filteredRecipes.take(visibleCount)
-                } else {
-                    filteredRecipes
-                }
+                val displayList = filteredRecipes.take(visibleCount)
 
                 LaunchedEffect(searchQuery) {
                     if (searchQuery.isBlank()) return@LaunchedEffect
@@ -148,6 +144,9 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(selectedCategory, searchQuery) {
                     visibleCount = 10
+                    if (searchQuery.isNotBlank()) {
+                        noMoreGlobalRecipes = false
+                    }
                 }
 
                 LaunchedEffect(selectedCategory) {
@@ -197,7 +196,6 @@ class MainActivity : ComponentActivity() {
                         if (displayList.isEmpty()) return@derivedStateOf false
                         if (isLoadingMore) return@derivedStateOf false
                         if (isCurrentContextExhausted) return@derivedStateOf false
-                        if (searchQuery.isNotBlank()) return@derivedStateOf false
 
                         val lastVisibleItemIndex =
                             listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
@@ -226,10 +224,16 @@ class MainActivity : ComponentActivity() {
                                 visibleCount = minOf(visibleCount + 10, filteredRecipes.size)
                                 "display_more"
                             } else {
-                                val addedCount = if (selectedCategory != null) {
-                                    RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
-                                } else {
-                                    RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                                val addedCount = when {
+                                    searchQuery.isNotBlank() -> {
+                                        RecipeSeeder.searchRecipesAndCache(itemDao, searchQuery)
+                                    }
+                                    selectedCategory != null -> {
+                                        RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                                    }
+                                    else -> {
+                                        RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                                    }
                                 }
 
                                 if (addedCount > 0) {
@@ -238,10 +242,16 @@ class MainActivity : ComponentActivity() {
                                     visibleCount = minOf(visibleCount + 10, recipes.size)
                                     "api_more"
                                 } else {
-                                    if (selectedCategory != null) {
-                                        exhaustedCategories = exhaustedCategories + selectedCategory!!
-                                    } else {
-                                        noMoreGlobalRecipes = true
+                                    when {
+                                        searchQuery.isNotBlank() -> {
+                                            noMoreGlobalRecipes = true
+                                        }
+                                        selectedCategory != null -> {
+                                            exhaustedCategories = exhaustedCategories + selectedCategory!!
+                                        }
+                                        else -> {
+                                            noMoreGlobalRecipes = true
+                                        }
                                     }
                                     "nothing_more"
                                 }
@@ -249,10 +259,16 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (result == null) {
-                            if (selectedCategory != null) {
-                                exhaustedCategories = exhaustedCategories + selectedCategory!!
-                            } else {
-                                noMoreGlobalRecipes = true
+                            when {
+                                searchQuery.isNotBlank() -> {
+                                    noMoreGlobalRecipes = true
+                                }
+                                selectedCategory != null -> {
+                                    exhaustedCategories = exhaustedCategories + selectedCategory!!
+                                }
+                                else -> {
+                                    noMoreGlobalRecipes = true
+                                }
                             }
                         }
                     } finally {
