@@ -18,14 +18,22 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.height
+
 
 @Composable
-fun CardItem(title: String, image: Painter){
+fun CardItem(title: String, imageUrl: String){
     Box(Modifier.width(265.dp).background(color = Color.White)){
-        Column() {
-            Image(
-                painter = image,
-                contentDescription = null
+        Column {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .width(265.dp)
+                    .height(180.dp)
             )
             Text(
                 text = title,
@@ -37,8 +45,8 @@ fun CardItem(title: String, image: Painter){
     }
 }
 
-@Preview()
+@Preview
 @Composable
 fun Preview(){
-    CardItem(title = "Je Lorem le Ipsum", image = painterResource(R.drawable.ip5xtp1769779958))
+    CardItem(title = "Je Lorem le Ipsum", imageUrl = "https://www.themealdb.com/images/media/meals/wvpsxx1468256321.jpg")
 }
