@@ -66,8 +66,8 @@ class MainActivity : ComponentActivity() {
                 var visibleCount by remember { mutableIntStateOf(10) }
                 var currentScreen by remember { androidx.compose.runtime.mutableStateOf("list") }
                 var selectedRecipe by remember { androidx.compose.runtime.mutableStateOf<ItemEntity?>(null) }
-                var searchQuery by remember { mutableStateOf("") }
                 var isLoadingMore by remember { mutableStateOf(false) }
+                var searchQuery by remember { mutableStateOf("") }
 
                 LaunchedEffect(Unit) {
                     lifecycleScope.launch {
@@ -141,6 +141,34 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 ) { innerPadding ->
+                val listState = rememberLazyListState()
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val lastVisibleItemIndex =
+                            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        lastVisibleItemIndex >= visibleCount - 2
+                    }
+                }
+                LaunchedEffect(shouldLoadMore) {
+                    if (currentScreen == "list" && shouldLoadMore && !isLoadingMore) {
+                        isLoadingMore = true
+                        delay(1000)
+
+                        if (visibleCount < recipes.size) {
+                            visibleCount = minOf(visibleCount + 10, recipes.size)
+                        } else {
+                            val addedCount = RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                            if (addedCount > 0) {
+                                recipes = itemDao.getAllRecipes()
+                                recipeCount = recipes.size
+                                visibleCount = minOf(visibleCount + 10, recipes.size)
+                            }
+                        }
+
+                        isLoadingMore = false
+                    }
+                }
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     if (currentScreen == "list") {
                         LazyColumn(
                             state = listState,

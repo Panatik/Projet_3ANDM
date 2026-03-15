@@ -87,4 +87,5 @@ object RecipeSeeder {
 
         return newRecipes.size
     }
+
 }
