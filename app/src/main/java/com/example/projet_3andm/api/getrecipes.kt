@@ -92,7 +92,7 @@ object RecipeSeeder {
                 ?: emptyList()
 
             for (meal in meals) {
-                if (recipesMap.size >= 100) break
+                if (recipesMap.size >= 50) break
                 if (recipesMap.containsKey(meal.idMeal)) continue
 
                 val details = RetrofitInstance.api
@@ -111,7 +111,7 @@ object RecipeSeeder {
                 }
             }
 
-            if (recipesMap.size >= 100) break
+            if (recipesMap.size >= 50) break
         }
 
         itemDao.insertAll(recipesMap.values.toList())
