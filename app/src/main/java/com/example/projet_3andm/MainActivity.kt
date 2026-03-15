@@ -40,7 +40,16 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.runtime.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableStateOf
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var itemDao: ItemDao
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,36 +63,109 @@ class MainActivity : ComponentActivity() {
             Projet_3ANDMTheme {
                 var recipeCount by remember { mutableIntStateOf(0) }
                 var recipes by remember { androidx.compose.runtime.mutableStateOf<List<ItemEntity>>(emptyList()) }
+                var visibleCount by remember { mutableIntStateOf(10) }
                 var currentScreen by remember { androidx.compose.runtime.mutableStateOf("list") }
                 var selectedRecipe by remember { androidx.compose.runtime.mutableStateOf<ItemEntity?>(null) }
+                var searchQuery by remember { mutableStateOf("") }
+                var isLoadingMore by remember { mutableStateOf(false) }
+
                 LaunchedEffect(Unit) {
                     lifecycleScope.launch {
                         RecipeSeeder.seedDatabase(itemDao)
                         recipeCount = itemDao.countRecipes()
                         recipes = itemDao.getAllRecipes()
+                        visibleCount = 10
                     }
                 }
+
                 BackHandler(enabled = currentScreen == "details") {
                     currentScreen = "list"
                     selectedRecipe = null
                 }
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                val listState = rememberLazyListState()
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val lastVisibleItemIndex =
+                            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        lastVisibleItemIndex >= visibleCount - 2
+                    }
+                }
+
+                LaunchedEffect(shouldLoadMore) {
+                    if (currentScreen == "list" && shouldLoadMore && !isLoadingMore) {
+                        isLoadingMore = true
+                        delay(1000)
+
+                        if (visibleCount < recipes.size) {
+                            visibleCount = minOf(visibleCount + 10, recipes.size)
+                        } else {
+                            val addedCount = RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                            if (addedCount > 0) {
+                                recipes = itemDao.getAllRecipes()
+                                recipeCount = recipes.size
+                                visibleCount = minOf(visibleCount + 10, recipes.size)
+                            }
+                        }
+
+                        isLoadingMore = false
+                    }
+                }
+
+                val filteredRecipes = remember(searchQuery, recipes) {
+                    if (searchQuery.isEmpty()) {
+                        recipes
+                    } else {
+                        recipes.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                    }
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    topBar = {
+                        // C'est ici qu'on remplace le titre par la barre de recherche
+                        TopAppBar(
+                            title = {
+                                TextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholder = { Text("Rechercher une recette...") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                    singleLine = true,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent
+                                    )
+                                )
+                            }
+                        )
+                    }
+                ) { innerPadding ->
                     if (currentScreen == "list") {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            item {
+                            /*item {
                                 Text(
                                     text = "Recettes en base : $recipeCount",
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 )
+                            }*/
+
+                            item {
+                                Text(
+                                    text = "${filteredRecipes.size} recettes trouvées",
+                                    modifier = Modifier.padding(vertical = 16.dp),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                             }
 
-                            items(recipes) { recipe ->
+                            items(recipes.take(visibleCount)) { recipe ->
                                 CardItem(
                                     title = recipe.title,
                                     imageUrl = recipe.image,
@@ -92,6 +174,14 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = "details"
                                     }
                                 )
+                            }
+                            if (isLoadingMore) {
+                                item {
+                                    Text(
+                                        text = "Chargement...",
+                                        modifier = Modifier.padding(vertical = 16.dp)
+                                    )
+                                }
                             }
                         }
                     } else {

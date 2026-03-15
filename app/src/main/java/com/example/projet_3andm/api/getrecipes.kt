@@ -42,4 +42,49 @@ object RecipeSeeder {
 
         itemDao.insertAll(recipesMap.values.toList())
     }
+
+    suspend fun loadMoreRecipes(itemDao: ItemDao, limit: Int = 10): Int {
+        val existingIds = itemDao.getAllRecipeIds().toMutableSet()
+        val newRecipes = mutableListOf<ItemEntity>()
+
+        val categories = RetrofitInstance.api.getCategories().categories
+
+        for (category in categories) {
+            val meals = RetrofitInstance.api
+                .getRecipesByCategory(category.strCategory)
+                .meals
+                ?: emptyList()
+
+            for (meal in meals) {
+                if (newRecipes.size >= limit) break
+                if (meal.idMeal in existingIds) continue
+
+                val details = RetrofitInstance.api
+                    .getRecipeById(meal.idMeal)
+                    .meals
+                    ?.firstOrNull()
+
+                if (details != null) {
+                    val recipe = ItemEntity(
+                        idMeal = details.idMeal,
+                        title = details.strMeal,
+                        description = details.strInstructions ?: "",
+                        image = details.strMealThumb ?: "",
+                        category = details.strCategory ?: category.strCategory
+                    )
+
+                    newRecipes.add(recipe)
+                    existingIds.add(details.idMeal)
+                }
+            }
+
+            if (newRecipes.size >= limit) break
+        }
+
+        if (newRecipes.isNotEmpty()) {
+            itemDao.insertAll(newRecipes)
+        }
+
+        return newRecipes.size
+    }
 }

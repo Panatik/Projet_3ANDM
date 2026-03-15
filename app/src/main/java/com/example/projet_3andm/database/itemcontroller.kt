@@ -18,4 +18,7 @@ interface ItemDao {
 
     @Query("SELECT COUNT(*) FROM recipes")
     suspend fun countRecipes(): Int
+
+    @Query("SELECT idMeal FROM recipes")
+    suspend fun getAllRecipeIds(): List<String>
 }
