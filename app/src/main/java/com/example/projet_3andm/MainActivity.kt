@@ -40,6 +40,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableStateOf
 
 class MainActivity : ComponentActivity() {
     private lateinit var itemDao: ItemDao
@@ -54,22 +58,53 @@ class MainActivity : ComponentActivity() {
             Projet_3ANDMTheme {
                 var recipeCount by remember { mutableIntStateOf(0) }
                 var recipes by remember { androidx.compose.runtime.mutableStateOf<List<ItemEntity>>(emptyList()) }
+                var visibleCount by remember { mutableIntStateOf(10) }
                 var currentScreen by remember { androidx.compose.runtime.mutableStateOf("list") }
                 var selectedRecipe by remember { androidx.compose.runtime.mutableStateOf<ItemEntity?>(null) }
+                var isLoadingMore by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     lifecycleScope.launch {
                         RecipeSeeder.seedDatabase(itemDao)
                         recipeCount = itemDao.countRecipes()
                         recipes = itemDao.getAllRecipes()
+                        visibleCount = 10
                     }
                 }
                 BackHandler(enabled = currentScreen == "details") {
                     currentScreen = "list"
                     selectedRecipe = null
                 }
+                val listState = rememberLazyListState()
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val lastVisibleItemIndex =
+                            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        lastVisibleItemIndex >= visibleCount - 2
+                    }
+                }
+                LaunchedEffect(shouldLoadMore) {
+                    if (currentScreen == "list" && shouldLoadMore && !isLoadingMore) {
+                        isLoadingMore = true
+                        delay(1000)
+
+                        if (visibleCount < recipes.size) {
+                            visibleCount = minOf(visibleCount + 10, recipes.size)
+                        } else {
+                            val addedCount = RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                            if (addedCount > 0) {
+                                recipes = itemDao.getAllRecipes()
+                                recipeCount = recipes.size
+                                visibleCount = minOf(visibleCount + 10, recipes.size)
+                            }
+                        }
+
+                        isLoadingMore = false
+                    }
+                }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     if (currentScreen == "list") {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(innerPadding),
@@ -83,7 +118,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
-                            items(recipes) { recipe ->
+                            items(recipes.take(visibleCount)) { recipe ->
                                 CardItem(
                                     title = recipe.title,
                                     imageUrl = recipe.image,
@@ -92,6 +127,14 @@ class MainActivity : ComponentActivity() {
                                         currentScreen = "details"
                                     }
                                 )
+                            }
+                            if (isLoadingMore) {
+                                item {
+                                    Text(
+                                        text = "Chargement...",
+                                        modifier = Modifier.padding(vertical = 16.dp)
+                                    )
+                                }
                             }
                         }
                     } else {
