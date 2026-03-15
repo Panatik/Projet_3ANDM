@@ -24,14 +24,19 @@ import com.example.projet_3andm.api.RecipeSeeder
 import com.example.projet_3andm.database.DatabaseProvider
 import com.example.projet_3andm.database.ItemDao
 import com.example.projet_3andm.database.ItemEntity
+import com.example.projet_3andm.database.CategoryEntity
+import com.example.projet_3andm.database.CategoryDao
 import com.example.projet_3andm.ui.theme.Projet_3ANDMTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var itemDao: ItemDao
+    private lateinit var categoryDao: CategoryDao
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -39,6 +44,7 @@ class MainActivity : ComponentActivity() {
 
         val db = DatabaseProvider.getDatabase(this)
         itemDao = db.itemDao()
+        categoryDao = db.categoryDao()
         enableEdgeToEdge()
 
         setContent {
@@ -50,21 +56,43 @@ class MainActivity : ComponentActivity() {
                 var selectedRecipe by remember { mutableStateOf<ItemEntity?>(null) }
                 var isLoadingMore by remember { mutableStateOf(false) }
                 var searchQuery by remember { mutableStateOf("") }
+                var categories by remember { mutableStateOf<List<CategoryEntity>>(emptyList()) }
+                var selectedCategory by remember { mutableStateOf<String?>(null) }
+                var noMoreRecipes by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     lifecycleScope.launch {
+                        RecipeSeeder.seedCategories(categoryDao)
                         RecipeSeeder.seedDatabase(itemDao)
+                        categories = categoryDao.getAllCategories()
                         recipes = itemDao.getAllRecipes()
                         recipeCount = recipes.size
                         visibleCount = 10
                     }
                 }
 
-                val filteredRecipes = remember(searchQuery, recipes) {
-                    if (searchQuery.isEmpty()) {
-                        recipes
-                    } else {
-                        recipes.filter { it.title.contains(searchQuery, ignoreCase = true) }
+                val filteredRecipes = remember(searchQuery, recipes, selectedCategory) {
+                    recipes.filter { recipe ->
+                        val matchesSearch = searchQuery.isEmpty() ||
+                                recipe.title.contains(searchQuery, ignoreCase = true)
+
+                        val matchesCategory = selectedCategory == null ||
+                                recipe.category == selectedCategory
+
+                        matchesSearch && matchesCategory
+                    }
+                }
+                LaunchedEffect(selectedCategory) {
+                    if (selectedCategory != null && filteredRecipes.isEmpty() && !isLoadingMore) {
+                        isLoadingMore = true
+                        val addedCount = RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                        if (addedCount > 0) {
+                            recipes = itemDao.getAllRecipes()
+                            recipeCount = recipes.size
+                        }
+                        visibleCount = 10
+                        isLoadingMore = false
+                        noMoreRecipes = false
                     }
                 }
 
@@ -76,27 +104,50 @@ class MainActivity : ComponentActivity() {
                 val listState = rememberLazyListState()
                 val shouldLoadMore by remember {
                     derivedStateOf {
-                        val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                        lastVisibleItemIndex >= visibleCount - 2 && searchQuery.isEmpty()
+                        val lastVisibleItemIndex =
+                            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+
+                        val isNearBottom = lastVisibleItemIndex >= visibleCount - 2
+
+                        isNearBottom && currentScreen == "list"
                     }
                 }
 
-                LaunchedEffect(shouldLoadMore) {
-                    if (currentScreen == "list" && shouldLoadMore && !isLoadingMore) {
-                        isLoadingMore = true
+                LaunchedEffect(shouldLoadMore, selectedCategory, searchQuery, filteredRecipes.size, recipes.size) {
+                    if (currentScreen != "list" || !shouldLoadMore || isLoadingMore || noMoreRecipes) return@LaunchedEffect
+
+                    isLoadingMore = true
+
+                    val result = withTimeoutOrNull(5_000) {
                         delay(1000)
-                        if (visibleCount < recipes.size) {
-                            visibleCount = minOf(visibleCount + 10, recipes.size)
+
+                        if (visibleCount < filteredRecipes.size) {
+                            visibleCount = minOf(visibleCount + 10, filteredRecipes.size)
+                            true
                         } else {
-                            val addedCount = RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                            val addedCount = if (selectedCategory != null) {
+                                RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                            } else {
+                                RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                            }
+
                             if (addedCount > 0) {
                                 recipes = itemDao.getAllRecipes()
                                 recipeCount = recipes.size
                                 visibleCount = minOf(visibleCount + 10, recipes.size)
+                                true
+                            } else {
+                                noMoreRecipes = true
+                                false
                             }
                         }
-                        isLoadingMore = false
                     }
+
+                    if (result == null) {
+                        noMoreRecipes = true
+                    }
+
+                    isLoadingMore = false
                 }
 
                 Scaffold(
@@ -139,6 +190,36 @@ class MainActivity : ComponentActivity() {
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            item {
+                                Text(
+                                    text = "Recettes disponible Hors Connexion : $recipeCount",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp)
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    FilterChip(
+                                        selected = selectedCategory == null,
+                                        onClick = { selectedCategory = null },
+                                        label = { Text("Toutes") }
+                                    )
+
+                                    categories.forEach { category ->
+                                        FilterChip(
+                                            selected = selectedCategory == category.name,
+                                            onClick = { selectedCategory = category.name },
+                                            label = { Text(category.name) }
+                                        )
+                                    }
+                                }
+                            }
                             item {
                                 Text(
                                     text = if (searchQuery.isEmpty()) "Toutes les recettes" else "${filteredRecipes.size} résultat(s) pour \"$searchQuery\"",
