@@ -2,9 +2,19 @@ package com.example.projet_3andm
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -13,24 +23,40 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.lifecycleScope
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.projet_3andm.api.RecipeSeeder
+import com.example.projet_3andm.database.CategoryDao
+import com.example.projet_3andm.database.CategoryEntity
 import com.example.projet_3andm.database.DatabaseProvider
 import com.example.projet_3andm.database.ItemDao
 import com.example.projet_3andm.database.ItemEntity
-import com.example.projet_3andm.database.CategoryEntity
-import com.example.projet_3andm.database.CategoryDao
 import com.example.projet_3andm.ui.theme.Projet_3ANDMTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,72 +71,110 @@ class MainActivity : ComponentActivity() {
         val db = DatabaseProvider.getDatabase(this)
         itemDao = db.itemDao()
         categoryDao = db.categoryDao()
+
         enableEdgeToEdge()
 
         setContent {
             Projet_3ANDMTheme {
                 var recipeCount by remember { mutableIntStateOf(0) }
                 var recipes by remember { mutableStateOf<List<ItemEntity>>(emptyList()) }
+                var categories by remember { mutableStateOf<List<CategoryEntity>>(emptyList()) }
+
                 var visibleCount by remember { mutableIntStateOf(10) }
                 var currentScreen by remember { mutableStateOf("list") }
                 var selectedRecipe by remember { mutableStateOf<ItemEntity?>(null) }
+
                 var isLoadingMore by remember { mutableStateOf(false) }
-                var searchQuery by remember { mutableStateOf("") }
-                var categories by remember { mutableStateOf<List<CategoryEntity>>(emptyList()) }
-                var selectedCategory by remember { mutableStateOf<String?>(null) }
-                var noMoreRecipes by remember { mutableStateOf(false) }
                 var isSearchingApi by remember { mutableStateOf(false) }
 
+                var searchQuery by remember { mutableStateOf("") }
+                var selectedCategory by remember { mutableStateOf<String?>(null) }
+
+                var exhaustedCategories by remember { mutableStateOf(setOf<String>()) }
+                var noMoreGlobalRecipes by remember { mutableStateOf(false) }
+
+                val isCurrentContextExhausted = if (selectedCategory != null) {
+                    exhaustedCategories.contains(selectedCategory)
+                } else {
+                    noMoreGlobalRecipes
+                }
+
                 LaunchedEffect(Unit) {
-                    lifecycleScope.launch {
-                        RecipeSeeder.seedCategories(categoryDao)
-                        RecipeSeeder.seedDatabase(itemDao)
-                        categories = categoryDao.getAllCategories()
-                        recipes = itemDao.getAllRecipes()
-                        recipeCount = recipes.size
-                        visibleCount = 10
-                    }
+                    RecipeSeeder.seedCategories(categoryDao)
+                    RecipeSeeder.seedDatabase(itemDao)
+
+                    categories = categoryDao.getAllCategories()
+                    recipes = itemDao.getAllRecipes()
+                    recipeCount = recipes.size
+                    visibleCount = 10
                 }
 
                 val filteredRecipes = remember(searchQuery, recipes, selectedCategory) {
                     recipes.filter { recipe ->
-                        val matchesSearch = searchQuery.isEmpty() ||
-                                recipe.title.contains(searchQuery, ignoreCase = true)
+                        val matchesSearch =
+                            searchQuery.isBlank() || recipe.title.contains(searchQuery, ignoreCase = true)
 
-                        val matchesCategory = selectedCategory == null ||
-                                recipe.category == selectedCategory
+                        val matchesCategory =
+                            selectedCategory == null || recipe.category == selectedCategory
 
                         matchesSearch && matchesCategory
                     }
+                }
+
+                val displayList = if (searchQuery.isBlank()) {
+                    filteredRecipes.take(visibleCount)
+                } else {
+                    filteredRecipes
                 }
 
                 LaunchedEffect(searchQuery) {
                     if (searchQuery.isBlank()) return@LaunchedEffect
 
                     delay(500)
-
                     isSearchingApi = true
 
-                    val result = withTimeoutOrNull(5_000) {
-                        RecipeSeeder.searchRecipesAndCache(itemDao, searchQuery)
-                    }
-
-                    recipes = itemDao.getAllRecipes()
-                    recipeCount = recipes.size
-                    visibleCount = 10
-                    isSearchingApi = false
-                }
-                LaunchedEffect(selectedCategory) {
-                    if (selectedCategory != null && filteredRecipes.isEmpty() && !isLoadingMore) {
-                        isLoadingMore = true
-                        val addedCount = RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
-                        if (addedCount > 0) {
-                            recipes = itemDao.getAllRecipes()
-                            recipeCount = recipes.size
+                    try {
+                        withTimeoutOrNull(5_000) {
+                            RecipeSeeder.searchRecipesAndCache(itemDao, searchQuery)
                         }
+
+                        recipes = itemDao.getAllRecipes()
+                        recipeCount = recipes.size
                         visibleCount = 10
-                        isLoadingMore = false
-                        noMoreRecipes = false
+                    } finally {
+                        isSearchingApi = false
+                    }
+                }
+
+                LaunchedEffect(selectedCategory, searchQuery) {
+                    visibleCount = 10
+                }
+
+                LaunchedEffect(selectedCategory) {
+                    if (
+                        currentScreen == "list" &&
+                        selectedCategory != null &&
+                        filteredRecipes.isEmpty() &&
+                        !isLoadingMore &&
+                        !exhaustedCategories.contains(selectedCategory)
+                    ) {
+                        isLoadingMore = true
+                        try {
+                            val addedCount = withTimeoutOrNull(5_000) {
+                                RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                            } ?: 0
+
+                            if (addedCount > 0) {
+                                recipes = itemDao.getAllRecipes()
+                                recipeCount = recipes.size
+                            } else {
+                                exhaustedCategories = exhaustedCategories + selectedCategory!!
+                            }
+
+                            visibleCount = 10
+                        } finally {
+                            isLoadingMore = false
+                        }
                     }
                 }
 
@@ -120,71 +184,105 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val listState = rememberLazyListState()
-                val shouldLoadMore by remember {
+
+                val shouldLoadMore by remember(
+                    listState,
+                    currentScreen,
+                    displayList.size,
+                    isLoadingMore,
+                    isCurrentContextExhausted
+                ) {
                     derivedStateOf {
+                        if (currentScreen != "list") return@derivedStateOf false
+                        if (displayList.isEmpty()) return@derivedStateOf false
+                        if (isLoadingMore) return@derivedStateOf false
+                        if (isCurrentContextExhausted) return@derivedStateOf false
+                        if (searchQuery.isNotBlank()) return@derivedStateOf false
+
                         val lastVisibleItemIndex =
                             listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        val totalItemsCount = listState.layoutInfo.totalItemsCount
 
-                        val isNearBottom = lastVisibleItemIndex >= visibleCount - 2
-
-                        isNearBottom && currentScreen == "list"
+                        lastVisibleItemIndex >= totalItemsCount - 3
                     }
                 }
 
-                LaunchedEffect(shouldLoadMore, selectedCategory, searchQuery, filteredRecipes.size, recipes.size) {
-                    if (currentScreen != "list" || !shouldLoadMore || isLoadingMore || noMoreRecipes) return@LaunchedEffect
+                LaunchedEffect(
+                    shouldLoadMore,
+                    selectedCategory,
+                    searchQuery,
+                    filteredRecipes.size,
+                    recipes.size
+                ) {
+                    if (!shouldLoadMore) return@LaunchedEffect
 
                     isLoadingMore = true
 
-                    val result = withTimeoutOrNull(5_000) {
-                        delay(1000)
+                    try {
+                        val result = withTimeoutOrNull(5_000) {
+                            delay(1000)
 
-                        if (visibleCount < filteredRecipes.size) {
-                            visibleCount = minOf(visibleCount + 10, filteredRecipes.size)
-                            true
-                        } else {
-                            val addedCount = if (selectedCategory != null) {
-                                RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                            if (visibleCount < filteredRecipes.size) {
+                                visibleCount = minOf(visibleCount + 10, filteredRecipes.size)
+                                "display_more"
                             } else {
-                                RecipeSeeder.loadMoreRecipes(itemDao, 10)
-                            }
+                                val addedCount = if (selectedCategory != null) {
+                                    RecipeSeeder.loadMoreRecipesByCategory(itemDao, selectedCategory!!, 10)
+                                } else {
+                                    RecipeSeeder.loadMoreRecipes(itemDao, 10)
+                                }
 
-                            if (addedCount > 0) {
-                                recipes = itemDao.getAllRecipes()
-                                recipeCount = recipes.size
-                                visibleCount = minOf(visibleCount + 10, recipes.size)
-                                true
-                            } else {
-                                noMoreRecipes = true
-                                false
+                                if (addedCount > 0) {
+                                    recipes = itemDao.getAllRecipes()
+                                    recipeCount = recipes.size
+                                    visibleCount = minOf(visibleCount + 10, recipes.size)
+                                    "api_more"
+                                } else {
+                                    if (selectedCategory != null) {
+                                        exhaustedCategories = exhaustedCategories + selectedCategory!!
+                                    } else {
+                                        noMoreGlobalRecipes = true
+                                    }
+                                    "nothing_more"
+                                }
                             }
                         }
-                    }
 
-                    if (result == null) {
-                        noMoreRecipes = true
+                        if (result == null) {
+                            if (selectedCategory != null) {
+                                exhaustedCategories = exhaustedCategories + selectedCategory!!
+                            } else {
+                                noMoreGlobalRecipes = true
+                            }
+                        }
+                    } finally {
+                        isLoadingMore = false
                     }
-
-                    isLoadingMore = false
                 }
 
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     topBar = {
-                        if(currentScreen == "list"){
-                            // La TopAppBar avec le TextField de recherche
+                        if (currentScreen == "list") {
                             TopAppBar(
                                 title = {
                                     TextField(
                                         value = searchQuery,
                                         onValueChange = { searchQuery = it },
                                         placeholder = { Text("Rechercher une recette...") },
-                                        modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(end = 16.dp),
+                                        leadingIcon = {
+                                            Icon(Icons.Default.Search, contentDescription = null)
+                                        },
                                         trailingIcon = {
                                             if (searchQuery.isNotEmpty()) {
                                                 IconButton(onClick = { searchQuery = "" }) {
-                                                    Icon(Icons.Default.Clear, contentDescription = "Effacer")
+                                                    Icon(
+                                                        Icons.Default.Clear,
+                                                        contentDescription = "Effacer"
+                                                    )
                                                 }
                                             }
                                         },
@@ -212,19 +310,21 @@ class MainActivity : ComponentActivity() {
                                 item {
                                     Box(
                                         modifier = Modifier.fillMaxWidth(),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         CircularProgressIndicator(modifier = Modifier.size(30.dp))
                                     }
                                 }
                             }
+
                             item {
                                 Text(
-                                    text = "Recettes disponible Hors Connexion : $recipeCount",
+                                    text = "Recettes disponibles hors connexion : $recipeCount",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+
                             item {
                                 Row(
                                     modifier = Modifier
@@ -248,20 +348,17 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             }
+
                             item {
                                 Text(
-                                    text = if (searchQuery.isEmpty()) "Toutes les recettes" else "${filteredRecipes.size} résultat(s) pour \"$searchQuery\"",
+                                    text = if (searchQuery.isBlank()) {
+                                        "Toutes les recettes"
+                                    } else {
+                                        "${filteredRecipes.size} résultat(s) pour \"$searchQuery\""
+                                    },
                                     style = MaterialTheme.typography.labelLarge,
                                     color = MaterialTheme.colorScheme.primary
                                 )
-                            }
-
-                            // Utilisation de filteredRecipes au lieu de recipes
-                            // On applique .take(visibleCount) seulement si on ne recherche rien
-                            val displayList = if (searchQuery.isEmpty()) {
-                                filteredRecipes.take(visibleCount)
-                            } else {
-                                filteredRecipes
                             }
 
                             items(displayList) { recipe ->
@@ -275,10 +372,30 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
-                            if (isLoadingMore && searchQuery.isEmpty()) {
+                            if (isLoadingMore && searchQuery.isBlank()) {
                                 item {
-                                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                         CircularProgressIndicator(modifier = Modifier.size(30.dp))
+                                    }
+                                }
+                            }
+
+                            if (isCurrentContextExhausted && searchQuery.isBlank()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "Toutes les recettes disponibles ont été chargées",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
                             }
@@ -292,20 +409,44 @@ class MainActivity : ComponentActivity() {
                                     .verticalScroll(rememberScrollState())
                                     .padding(16.dp)
                             ) {
-                                Button(onClick = { currentScreen = "list"; selectedRecipe = null }) {
+                                Button(
+                                    onClick = {
+                                        currentScreen = "list"
+                                        selectedRecipe = null
+                                    }
+                                ) {
                                     Text("Retour")
                                 }
 
                                 Card(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 16.dp),
                                     elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                                 ) {
-                                    CardItem(title = recipe.title, imageUrl = recipe.image, onClick = {})
+                                    CardItem(
+                                        title = recipe.title,
+                                        imageUrl = recipe.image,
+                                        onClick = {}
+                                    )
                                 }
 
-                                Text("Catégorie : ${recipe.category}", modifier = Modifier.padding(top = 12.dp), fontWeight = FontWeight.SemiBold)
-                                Text("Description", modifier = Modifier.padding(top = 20.dp), fontWeight = FontWeight.Bold)
-                                Text(text = recipe.description, modifier = Modifier.padding(top = 8.dp, bottom = 24.dp))
+                                Text(
+                                    text = "Catégorie : ${recipe.category}",
+                                    modifier = Modifier.padding(top = 12.dp),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+
+                                Text(
+                                    text = "Description",
+                                    modifier = Modifier.padding(top = 20.dp),
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Text(
+                                    text = recipe.description,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 24.dp)
+                                )
                             }
                         }
                     }
