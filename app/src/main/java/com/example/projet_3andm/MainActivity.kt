@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                 var categories by remember { mutableStateOf<List<CategoryEntity>>(emptyList()) }
                 var selectedCategory by remember { mutableStateOf<String?>(null) }
                 var noMoreRecipes by remember { mutableStateOf(false) }
+                var isSearchingApi by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
                     lifecycleScope.launch {
@@ -81,6 +82,23 @@ class MainActivity : ComponentActivity() {
 
                         matchesSearch && matchesCategory
                     }
+                }
+
+                LaunchedEffect(searchQuery) {
+                    if (searchQuery.isBlank()) return@LaunchedEffect
+
+                    delay(500)
+
+                    isSearchingApi = true
+
+                    val result = withTimeoutOrNull(5_000) {
+                        RecipeSeeder.searchRecipesAndCache(itemDao, searchQuery)
+                    }
+
+                    recipes = itemDao.getAllRecipes()
+                    recipeCount = recipes.size
+                    visibleCount = 10
+                    isSearchingApi = false
                 }
                 LaunchedEffect(selectedCategory) {
                     if (selectedCategory != null && filteredRecipes.isEmpty() && !isLoadingMore) {
@@ -190,6 +208,16 @@ class MainActivity : ComponentActivity() {
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
+                            if (isSearchingApi) {
+                                item {
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(modifier = Modifier.size(30.dp))
+                                    }
+                                }
+                            }
                             item {
                                 Text(
                                     text = "Recettes disponible Hors Connexion : $recipeCount",

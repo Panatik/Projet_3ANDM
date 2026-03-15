@@ -7,6 +7,24 @@ import com.example.projet_3andm.database.CategoryEntity
 
 object RecipeSeeder {
 
+    suspend fun searchRecipesAndCache(itemDao: ItemDao, query: String): Int {
+        if (query.isBlank()) return 0
+
+        val meals = RetrofitInstance.api.searchRecipes(query).meals ?: return 0
+
+        val recipesToInsert = meals.map { meal ->
+            ItemEntity(
+                idMeal = meal.idMeal,
+                title = meal.strMeal,
+                description = meal.strInstructions ?: "",
+                image = meal.strMealThumb ?: "",
+                category = meal.strCategory ?: ""
+            )
+        }
+
+        itemDao.insertAll(recipesToInsert)
+        return recipesToInsert.size
+    }
     suspend fun loadMoreRecipesByCategory(
         itemDao: ItemDao,
         category: String,
